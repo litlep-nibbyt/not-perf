@@ -473,6 +473,11 @@ impl< A: Architecture > BinaryRegion< A > {
     }
 
     #[inline]
+    pub fn is_readable( &self ) -> bool {
+        self.memory_region.is_read
+    }
+
+    #[inline]
     fn file_offset( &self ) -> u64 {
         self.memory_region.file_offset
     }
