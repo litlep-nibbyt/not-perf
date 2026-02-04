@@ -35,7 +35,7 @@ get_regs_amd64:
     /* RFLAGS */
     pushfq
     .cfi_def_cfa_offset 16
-    pop [rdi+8*49]
+    pop qword ptr [rdi+8*49]
     .cfi_def_cfa_offset 8
 
     mov rax, cs
