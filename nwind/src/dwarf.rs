@@ -1,5 +1,6 @@
 use gimli::{
     self,
+    Register,
     RegisterRule,
     CfaRule,
     EvaluationResult,
@@ -222,11 +223,14 @@ fn dwarf_unwind_impl< A: Architecture, M: MemoryReader< A > >(
     };
 
     let mut cacheable = true;
+    let mut recovered_return_address = false;
+    let return_rule = unwind_info.register( Register( A::RETURN_ADDRESS_REG ) );
     unwind_info.each_register( |(register, rule)| {
         debug!( "  Register {:?}: {:?}", A::register_name( register.0 ), rule );
 
         if let Some( (value_address, value) ) = dwarf_get_reg( nth_frame + 1, register.0, memory, regs, cfa_value, rule ) {
             if register.0 == A::RETURN_ADDRESS_REG {
+                recovered_return_address = true;
                 *ra_address = Some( value_address );
             }
 
@@ -235,6 +239,30 @@ fn dwarf_unwind_impl< A: Architecture, M: MemoryReader< A > >(
             cacheable = false;
         }
     });
+
+    if !recovered_return_address {
+        if !matches!( return_rule, RegisterRule::Undefined ) {
+            debug!(
+                "  Register {:?} (implicit): {:?}",
+                A::register_name( A::RETURN_ADDRESS_REG ),
+                return_rule
+            );
+
+            if let Some( (value_address, value) ) = dwarf_get_reg(
+                nth_frame + 1,
+                A::RETURN_ADDRESS_REG,
+                memory,
+                regs,
+                cfa_value,
+                &return_rule
+            ) {
+                *ra_address = Some( value_address );
+                next_regs.push( (A::RETURN_ADDRESS_REG, value) );
+            } else {
+                cacheable = false;
+            }
+        }
+    }
 
     Some( (cfa_value, cacheable) )
 }

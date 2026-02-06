@@ -229,7 +229,7 @@ impl Architecture for Arch {
 
         debug!( "Register {:?} at frame #{} is equal to 0x{:016X}", Self::register_name( dwarf::X31 ), nth_frame + 1, cfa );
 
-        if recovered_return_address || nth_frame == 0 {
+        if recovered_return_address {
             regs.pc = regs.x30;
             Some( UnwindStatus::InProgress )
         } else {

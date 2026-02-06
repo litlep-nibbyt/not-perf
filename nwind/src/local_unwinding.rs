@@ -27,6 +27,7 @@ pub enum UnwindControl {
 
 struct LocalMemory< 'a > {
     regions: &'a RangeMap< BinaryRegion< arch::native::Arch > >,
+    readable_regions: &'a RangeMap< () >,
     dynamic_fde_registry: &'a DynamicFdeRegistry< gimli::NativeEndian >
 }
 
@@ -37,11 +38,7 @@ impl< 'a > MemoryReader< arch::native::Arch > for LocalMemory< 'a > {
 
     #[inline(always)]
     fn get_pointer_at_address( &self, address: <arch::native::Arch as Architecture>::RegTy ) -> Option< <arch::native::Arch as Architecture>::RegTy > {
-        let region = match self.get_region_at_address( address as u64 ) {
-            Some( region ) => region,
-            None => return None
-        };
-        if !region.is_readable() {
+        if self.readable_regions.get_value( address as u64 ).is_none() {
             return None;
         }
 
@@ -459,8 +456,33 @@ impl ShadowStack {
         if *slot == nwind_ret_trampoline as usize {
             debug!( "Found already set trampoline at slot 0x{:016X}", address_location );
 
-            let index = self.tls().tail - 1;
-            let entry = &self.tls().slice()[ index ];
+            let tls = self.tls();
+            if tls.tail == 0 {
+                warn!(
+                    "Shadow stack empty but trampoline is set at slot 0x{:016X}; attempting recovery",
+                    address_location
+                );
+
+                if let Some( index ) = tls.slice().iter().position( |entry| {
+                    entry.location == address_location && entry.stack_pointer == stack_pointer
+                }) {
+                    tls.tail = index + 1;
+                    debug!(
+                        "Recovered shadow stack tail to {} using slot 0x{:016X}",
+                        tls.tail,
+                        address_location
+                    );
+                } else {
+                    error!(
+                        "Failed to recover shadow stack entry for slot 0x{:016X}; falling back to full unwind",
+                        address_location
+                    );
+                    return ShadowStackResult::NotFound;
+                }
+            }
+
+            let index = tls.tail - 1;
+            let entry = &tls.slice()[ index ];
             if entry.location != address_location {
                 debug!( "The address of the slot (0x{:016X}) doesn't match the slot address from the shadow stack (0x{:016X}) for shadow stack entry #{}", address_location, entry.location, index );
                 debug!( "Shadow stack #{}: return address = 0x{:016X}, slot = 0x{:016X}, stack pointer = 0x{:016X}", index, entry.return_address, entry.location, entry.stack_pointer );
@@ -570,6 +592,7 @@ impl LocalUnwindContext {
 
 pub struct LocalAddressSpace {
     regions: RangeMap< BinaryRegion< arch::native::Arch > >,
+    readable_regions: RangeMap< () >,
     binary_map: HashMap< BinaryId, BinaryHandle< arch::native::Arch > >,
     use_shadow_stack: bool,
     should_load_symbols: bool,
@@ -712,6 +735,7 @@ impl LocalAddressSpace {
 
         let mut address_space = LocalAddressSpace {
             regions: RangeMap::new(),
+            readable_regions: RangeMap::new(),
             binary_map: HashMap::new(),
             use_shadow_stack: false,
             should_load_symbols: opts.should_load_symbols,
@@ -739,6 +763,13 @@ impl LocalAddressSpace {
         let maps = String::from_utf8_lossy( &maps );
         trace!( "Parsing maps..." );
         let regions = proc_maps::parse( &maps );
+        let mut readable_regions = RangeMap::new();
+        for region in &regions {
+            if region.is_read {
+                let _ = readable_regions.push( region.start..region.end, () );
+            }
+        }
+        self.readable_regions = readable_regions;
         let should_load_symbols = self.should_load_symbols;
 
         self.reload_count += 1;
@@ -795,6 +826,7 @@ impl LocalAddressSpace {
 
         let memory = LocalMemory {
             regions: &self.regions,
+            readable_regions: &self.readable_regions,
             dynamic_fde_registry: &self.dynamic_fde_registry
         };
 
@@ -868,6 +900,7 @@ impl LocalAddressSpace {
 
         let memory = LocalMemory {
             regions: &self.regions,
+            readable_regions: &self.readable_regions,
             dynamic_fde_registry: &self.dynamic_fde_registry
         };
 
