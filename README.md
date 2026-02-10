@@ -33,13 +33,17 @@ Some of those are as follows:
 
 ## Building
 
-1. Install at least Rust 1.31
+1. Install Rust (this repository was validated together with Bytehound on `nightly-2025-11-26`; standalone builds should still work on modern stable toolchains)
 2. Build it:
 
         $ cd cli
         $ cargo build --release
 
 3. Grab the binary from `target/release/`.
+
+### Bytehound integration note
+
+When using this repository as a local dependency for Bytehound, prefer path dependencies during migration work so both repositories can be updated together before publishing/pinning a Git commit.
 
 ### Cross-compiling
 
